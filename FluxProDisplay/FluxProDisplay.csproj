@@ -17,10 +17,10 @@
       <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.9" />
       <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="9.0.9" />
       <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.9" />
-      <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.5-pre520" />
-      <PackageReference Include="System.Management" Version="9.0.10" />
+      <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.5-pre570" />
+      <PackageReference Include="System.Management" Version="10.0.0" />
       <PackageReference Include="System.Threading" Version="4.3.0" />
-      <PackageReference Include="TaskScheduler" Version="2.12.1" />
+      <PackageReference Include="TaskScheduler" Version="2.12.2" />
     </ItemGroup>
 
     <ItemGroup>
@@ -38,6 +38,9 @@
       </None>
       <None Update="appsettings.json">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Update="NuGet.Config">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </None>
     </ItemGroup>
 
