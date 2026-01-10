@@ -4,6 +4,7 @@ using FluxProDisplay.DTOs.AppSettings;
 using HidLibrary;
 using Microsoft.Win32.TaskScheduler;
 using Task = System.Threading.Tasks.Task;
+using LibreHardwareMonitor.PawnIo;
 
 namespace FluxProDisplay;
 
@@ -29,13 +30,16 @@ public partial class FluxProDisplayTray : Form
     private Container _component = null!;
     private ContextMenuStrip _contextMenuStrip = null!;
     
-    private readonly Icon _iconConnected = new Icon("assets/icon_connected.ico");
-    private readonly Icon _iconDisconnected = new Icon("assets/icon_disconnected.ico");
+    private readonly Icon _iconConnected = new Icon("Assets/icon_connected.ico");
+    private readonly Icon _iconDisconnected = new Icon("Assets/icon_disconnected.ico");
     
     public FluxProDisplayTray(RootConfig configuration)
     {
         // check if iUnity is running to prevent conflicts before doing anything else
-        CheckForIUnity();
+        PreflightChecks.CheckForIUnity();
+        
+        // check if PawnIO driver is installed.
+        PreflightChecks.CheckForPawnIoDriver();
         
         InitializeComponent();
         
@@ -48,24 +52,12 @@ public partial class FluxProDisplayTray : Form
         _pollingInterval = configuration.AppSettings.PollingInterval;
         _vendorId = configuration.AppSettings.VendorIdInt;
         _productId = configuration.AppSettings.ProductIdInt;
-
+        
         SetUpTrayIcon();
 
         _ = WriteToDisplay();
     }
-
-    private static void CheckForIUnity()
-    {
-        var isRunning =
-            Process.GetProcessesByName("iunity").Length > 0 ||
-            Process.GetProcessesByName("AntecHardwareMonitorWindowsService").Length > 0;
-
-        if (!isRunning) return;
-
-        MessageBox.Show("iUnity is running, please end the iUnity program and its related processes from task manager and try again.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        Environment.Exit(0);
-    }
-
+    
     private void SetUpTrayIcon()
     {
         _component = new Container();

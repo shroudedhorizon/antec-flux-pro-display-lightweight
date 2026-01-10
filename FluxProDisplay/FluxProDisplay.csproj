@@ -8,7 +8,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <ApplicationManifest>app.manifest</ApplicationManifest>
         <PublishSingleFile>true</PublishSingleFile>
-        <ApplicationIcon>assets\app_icon.ico</ApplicationIcon>
+        <ApplicationIcon>Assets\app_icon.ico</ApplicationIcon>
         <EnableWindowsTargeting>true</EnableWindowsTargeting>
     </PropertyGroup>
 
@@ -17,8 +17,8 @@
       <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.9" />
       <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="9.0.9" />
       <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.9" />
-      <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.5-pre570" />
-      <PackageReference Include="System.Management" Version="10.0.0" />
+      <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.5" />
+      <PackageReference Include="System.Management" Version="10.0.1" />
       <PackageReference Include="System.Threading" Version="4.3.0" />
       <PackageReference Include="TaskScheduler" Version="2.12.2" />
     </ItemGroup>
@@ -27,13 +27,13 @@
       <None Update="app.manifest">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </None>
-      <None Update="assets\app_icon.ico">
+      <None Update="Assets\app_icon.ico">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </None>
-      <None Update="assets\icon_connected.ico">
+      <None Update="Assets\icon_connected.ico">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </None>
-      <None Update="assets\icon_disconnected.ico">
+      <None Update="Assets\icon_disconnected.ico">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </None>
       <None Update="appsettings.json">
@@ -42,6 +42,13 @@
       <None Update="NuGet.Config">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </None>
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Remove="Assets\PawnIO_setup.exe" />
+      <EmbeddedResource Include="Assets\PawnIO_setup.exe">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </EmbeddedResource>
     </ItemGroup>
 
 </Project>
