@@ -4,6 +4,7 @@ using FluxProDisplay.DTOs.AppSettings;
 using HidLibrary;
 using Microsoft.Win32.TaskScheduler;
 using Task = System.Threading.Tasks.Task;
+using LibreHardwareMonitor.PawnIo;
 
 namespace FluxProDisplay;
 
@@ -37,6 +38,9 @@ public partial class FluxProDisplayTray : Form
         // check if iUnity is running to prevent conflicts before doing anything else
         CheckForIUnity();
         
+        // check if PawnIO driver is installed.
+        CheckForPawnIoDriver();
+        
         InitializeComponent();
         
         _monitor = new HardwareMonitor();
@@ -48,12 +52,79 @@ public partial class FluxProDisplayTray : Form
         _pollingInterval = configuration.AppSettings.PollingInterval;
         _vendorId = configuration.AppSettings.VendorIdInt;
         _productId = configuration.AppSettings.ProductIdInt;
-
+        
         SetUpTrayIcon();
 
         _ = WriteToDisplay();
     }
 
+    private static void CheckForPawnIoDriver()
+    {
+        if (PawnIo.IsInstalled)
+        {
+            if (PawnIo.Version < new Version(2, 0, 0, 0))
+            {
+                var result = MessageBox.Show("PawnIO driver is outdated, do you want to update it?", nameof(FluxProDisplay), MessageBoxButtons.OKCancel);
+                if (result == DialogResult.OK)
+                {
+                    InstallPawnIoDriver();
+                }
+                else
+                {
+                    Environment.Exit(0);
+                }
+            }
+        }
+        else
+        {
+            var result = MessageBox.Show("PawnIO driver is not installed, do you want to install it?", nameof(FluxProDisplay), MessageBoxButtons.OKCancel);
+            if (result == DialogResult.OK)
+            {
+                InstallPawnIoDriver();
+            }
+            else
+            {
+                Environment.Exit(0);
+            }
+        }
+    }
+
+    private static void InstallPawnIoDriver()
+    {
+        var destination = Path.Combine(Path.GetTempPath(), "PawnIO_setup.exe");
+
+        try
+        {
+            using (var resourceStream = typeof(FluxProDisplayTray).Assembly
+                       .GetManifestResourceStream("FluxProDisplay.assets.PawnIO_setup.exe"))
+            {
+                if (resourceStream == null)
+                    throw new Exception("Embedded installer not found");
+
+                using (var fileStream = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    resourceStream.CopyTo(fileStream);
+                }
+            }
+
+            // run installer
+            var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = destination,
+                Arguments = "-install",
+                UseShellExecute = true
+            });
+
+            process?.WaitForExit();
+
+            File.Delete(destination);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message);
+        }
+    }
+    
     private static void CheckForIUnity()
     {
         var isRunning =

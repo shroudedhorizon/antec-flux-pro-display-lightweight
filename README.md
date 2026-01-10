@@ -5,10 +5,9 @@ A small, lightweight app that runs in the background that gets system cpu and gp
 Requires Administrator privileges in order to fetch CPU and GPU data from libre hardware monitor's library.
 
 ## Installation
-1. You will need to install the PawnIO driver from here first: https://pawnio.eu
-2. Next, download the latest release of this display software [here](https://github.com/archotechna/antec-flux-pro-display-lightweight/releases/latest)
-3. Installation location is up to you, but you can extract and move the files to `C:\Program Files` and just launch it from in there.
-4. That is it! The app will appear on the bottom right in the [system tray](https://dsurf.net/images/W11-HiddenIcons01-B.png) area.
+1. Installation location is up to you, but you can extract and move the files to `C:\Program Files` and just launch the `FluxProDisplay.exe` program from there.
+2. You will be asked to either update or install the PawnIO driver. More information can be found in the Dependencies section below.
+3. That is it! The app will appear on the bottom right in the [system tray](https://dsurf.net/images/W11-HiddenIcons01-B.png) area.
 
 ## Notes and Information
 ### Dependencies
