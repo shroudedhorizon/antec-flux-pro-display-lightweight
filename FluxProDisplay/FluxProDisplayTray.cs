@@ -30,16 +30,16 @@ public partial class FluxProDisplayTray : Form
     private Container _component = null!;
     private ContextMenuStrip _contextMenuStrip = null!;
     
-    private readonly Icon _iconConnected = new Icon("assets/icon_connected.ico");
-    private readonly Icon _iconDisconnected = new Icon("assets/icon_disconnected.ico");
+    private readonly Icon _iconConnected = new Icon("Assets/icon_connected.ico");
+    private readonly Icon _iconDisconnected = new Icon("Assets/icon_disconnected.ico");
     
     public FluxProDisplayTray(RootConfig configuration)
     {
         // check if iUnity is running to prevent conflicts before doing anything else
-        CheckForIUnity();
+        PreflightChecks.CheckForIUnity();
         
         // check if PawnIO driver is installed.
-        CheckForPawnIoDriver();
+        PreflightChecks.CheckForPawnIoDriver();
         
         InitializeComponent();
         
@@ -57,86 +57,7 @@ public partial class FluxProDisplayTray : Form
 
         _ = WriteToDisplay();
     }
-
-    private static void CheckForPawnIoDriver()
-    {
-        if (PawnIo.IsInstalled)
-        {
-            if (PawnIo.Version < new Version(2, 0, 0, 0))
-            {
-                var result = MessageBox.Show("PawnIO driver is outdated, do you want to update it?", nameof(FluxProDisplay), MessageBoxButtons.OKCancel);
-                if (result == DialogResult.OK)
-                {
-                    InstallPawnIoDriver();
-                }
-                else
-                {
-                    Environment.Exit(0);
-                }
-            }
-        }
-        else
-        {
-            var result = MessageBox.Show("PawnIO driver is not installed, do you want to install it?", nameof(FluxProDisplay), MessageBoxButtons.OKCancel);
-            if (result == DialogResult.OK)
-            {
-                InstallPawnIoDriver();
-            }
-            else
-            {
-                Environment.Exit(0);
-            }
-        }
-    }
-
-    private static void InstallPawnIoDriver()
-    {
-        var destination = Path.Combine(Path.GetTempPath(), "PawnIO_setup.exe");
-
-        try
-        {
-            using (var resourceStream = typeof(FluxProDisplayTray).Assembly
-                       .GetManifestResourceStream("FluxProDisplay.assets.PawnIO_setup.exe"))
-            {
-                if (resourceStream == null)
-                    throw new Exception("Embedded installer not found");
-
-                using (var fileStream = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None))
-                {
-                    resourceStream.CopyTo(fileStream);
-                }
-            }
-
-            // run installer
-            var process = Process.Start(new ProcessStartInfo
-            {
-                FileName = destination,
-                Arguments = "-install",
-                UseShellExecute = true
-            });
-
-            process?.WaitForExit();
-
-            File.Delete(destination);
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(ex.Message);
-        }
-    }
     
-    private static void CheckForIUnity()
-    {
-        var isRunning =
-            Process.GetProcessesByName("iunity").Length > 0 ||
-            Process.GetProcessesByName("AntecHardwareMonitorWindowsService").Length > 0;
-
-        if (!isRunning) return;
-
-        MessageBox.Show("iUnity is running, please end the iUnity program and its related processes from task manager and try again.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        Environment.Exit(0);
-    }
-
     private void SetUpTrayIcon()
     {
         _component = new Container();

@@ -8,7 +8,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <ApplicationManifest>app.manifest</ApplicationManifest>
         <PublishSingleFile>true</PublishSingleFile>
-        <ApplicationIcon>assets\app_icon.ico</ApplicationIcon>
+        <ApplicationIcon>Assets\app_icon.ico</ApplicationIcon>
         <EnableWindowsTargeting>true</EnableWindowsTargeting>
     </PropertyGroup>
 
@@ -27,13 +27,13 @@
       <None Update="app.manifest">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </None>
-      <None Update="assets\app_icon.ico">
+      <None Update="Assets\app_icon.ico">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </None>
-      <None Update="assets\icon_connected.ico">
+      <None Update="Assets\icon_connected.ico">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </None>
-      <None Update="assets\icon_disconnected.ico">
+      <None Update="Assets\icon_disconnected.ico">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </None>
       <None Update="appsettings.json">
@@ -45,8 +45,8 @@
     </ItemGroup>
 
     <ItemGroup>
-      <None Remove="assets\PawnIO_setup.exe" />
-      <EmbeddedResource Include="assets\PawnIO_setup.exe">
+      <None Remove="Assets\PawnIO_setup.exe" />
+      <EmbeddedResource Include="Assets\PawnIO_setup.exe">
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </EmbeddedResource>
     </ItemGroup>
