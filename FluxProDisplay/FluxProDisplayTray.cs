@@ -1,10 +1,8 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using FluxProDisplay.DTOs.AppSettings;
 using HidLibrary;
 using Microsoft.Win32.TaskScheduler;
 using Task = System.Threading.Tasks.Task;
-using LibreHardwareMonitor.PawnIo;
 
 namespace FluxProDisplay;
 
@@ -14,6 +12,7 @@ public partial class FluxProDisplayTray : Form
     private ToolStripLabel? _connectionStatusLabel;
     private ToolStripLabel? _cpuTempDebugLabel;
     private ToolStripLabel? _gpuTempDebugLabel;
+    private ToolStripLabel? _updateAvailable;
     private ToolStripMenuItem? _startupToggleMenuItem;
     private const string ElevatedTaskName = "FluxProDisplayElevatedTask";
     
@@ -32,30 +31,57 @@ public partial class FluxProDisplayTray : Form
     
     private readonly Icon _iconConnected = new Icon("Assets/icon_connected.ico");
     private readonly Icon _iconDisconnected = new Icon("Assets/icon_disconnected.ico");
-    
+    private bool _newerVersionExists = false;
+    private readonly RootConfig _config;
+
     public FluxProDisplayTray(RootConfig configuration)
     {
-        // check if iUnity is running to prevent conflicts before doing anything else
         PreflightChecks.CheckForIUnity();
-        
-        // check if PawnIO driver is installed.
         PreflightChecks.CheckForPawnIoDriver();
+        
+        // initialize variables from config when everything is confirmed working
+        _config = configuration;
+        _appName = _config.AppInfo.Info;
+        _version = _config.AppInfo.Version;
+        _debug = _config.AppInfo.Debug;
+        _pollingInterval = _config.AppSettings.PollingInterval;
+        _vendorId = _config.AppSettings.VendorIdInt;
+        _productId = _config.AppSettings.ProductIdInt;
         
         InitializeComponent();
         
+        _ = CheckForUpdatesAsync();
+        
         _monitor = new HardwareMonitor();
         
-        // initialize variables from config file for easier changing
-        _appName = configuration.AppInfo.Info;
-        _version = configuration.AppInfo.Version;
-        _debug = configuration.AppInfo.Debug;
-        _pollingInterval = configuration.AppSettings.PollingInterval;
-        _vendorId = configuration.AppSettings.VendorIdInt;
-        _productId = configuration.AppSettings.ProductIdInt;
-        
         SetUpTrayIcon();
-
+        
         _ = WriteToDisplay();
+    }
+    
+    private async Task CheckForUpdatesAsync()
+    {
+        try
+        {
+            _newerVersionExists = await PreflightChecks.CheckForUpdates(
+                _version,
+                _config.Git.RepoTagsLink
+            );
+            
+            if (_newerVersionExists)
+            {
+                Console.WriteLine(_newerVersionExists);
+                _contextMenuStrip.Items.Add(new ToolStripSeparator());
+                _updateAvailable = new ToolStripLabel("A new update is available! Click here");
+                _updateAvailable.ForeColor = Color.Gray;
+                _updateAvailable.Enabled = false;
+                _contextMenuStrip.Items.Add(_updateAvailable);
+            }
+        }
+        catch (Exception ex)
+        {
+            // reserve for future error logging
+        }
     }
     
     private void SetUpTrayIcon()
@@ -71,7 +97,6 @@ public partial class FluxProDisplayTray : Form
         appNameLabel.Enabled = false;
         _contextMenuStrip.Items.Add(appNameLabel);
         
-        // debug item that shows current temperature in menu strip
         if (_debug)
         {
             AddDebugMenuItems();
@@ -231,7 +256,7 @@ public partial class FluxProDisplayTray : Form
     }
 
     /// <summary>
-    /// formats the payload correctly to send information to the antec flux pro display.
+    /// formats the payload correctly to send information to the flux pro display.
     /// </summary>
     /// <param name="payload"></param>
     /// <param name="cpuTemperature"></param>

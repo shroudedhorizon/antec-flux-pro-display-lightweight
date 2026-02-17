@@ -3,8 +3,8 @@
 public class AppSettings
 {
     public int PollingInterval { get; set; }
-    public string VendorId { get; set; } = null!;
-    public string ProductId { get; set; } = null!;
+    private string VendorId { get; set; } = null!;
+    private string ProductId { get; set; } = null!;
     public int VendorIdInt => ParseHexString(VendorId);
     public int ProductIdInt => ParseHexString(ProductId);
 

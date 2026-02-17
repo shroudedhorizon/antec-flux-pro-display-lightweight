@@ -1,10 +1,22 @@
 ﻿using System.Diagnostics;
+using System.Text.Json;
 using LibreHardwareMonitor.PawnIo;
+using NuGet.Versioning;
 
 namespace FluxProDisplay;
 
 public static class PreflightChecks
 {
+    private record FormattedTag(string name)
+    {
+        private static string Normalize(string tag) =>
+            tag.StartsWith("v", StringComparison.OrdinalIgnoreCase)
+                ? tag[1..]
+                : tag;
+
+        public NuGetVersion Version => NuGetVersion.Parse(Normalize(name));
+    }
+    
     /// <summary>
     /// check if IUnity is running on the user's system.
     /// </summary>
@@ -94,4 +106,25 @@ public static class PreflightChecks
         }
     }
 
+    public static async Task<bool> CheckForUpdates(string currentVersion, string repoLink)
+    {
+        using var client = new HttpClient();
+        
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("FluxProDisplay/1.0");
+
+        try
+        {
+            var response = await client.GetStringAsync(repoLink);
+            var currentVersionFormatted = new FormattedTag(currentVersion).Version;
+            var latestVersion = JsonSerializer.Deserialize<List<FormattedTag>>(response)!
+                .OrderByDescending(t => t.Version)
+                .First();
+
+            return currentVersionFormatted < latestVersion.Version;
+        }
+        catch (Exception mesg)
+        {
+            return false;
+        }
+    }
 }
