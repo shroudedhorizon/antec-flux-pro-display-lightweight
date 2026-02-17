@@ -5,6 +5,9 @@ namespace FluxProDisplay;
 
 public static class PreflightChecks
 {
+    // minimum version needed for pawnIO so it runs fine.
+    private const string PawnIoLatestVersion = "2.1.0.0";
+        
     /// <summary>
     /// check if IUnity is running on the user's system.
     /// </summary>
@@ -27,7 +30,7 @@ public static class PreflightChecks
     {
         if (PawnIo.IsInstalled)
         {
-            if (PawnIo.Version < new Version(2, 0, 0, 0))
+            if (PawnIo.Version < new Version(PawnIoLatestVersion))
             {
                 var result = MessageBox.Show("PawnIO driver is outdated, do you want to update it?", nameof(FluxProDisplay), MessageBoxButtons.OKCancel);
                 if (result == DialogResult.OK)
@@ -75,16 +78,26 @@ public static class PreflightChecks
                     resourceStream.CopyTo(fileStream);
                 }
             }
+            
+            // run uninstaller, always uninstall if an install is needed.
+            var uninstallProcess = Process.Start(new ProcessStartInfo
+            {
+                FileName = destination,
+                Arguments = "-uninstall -silent",
+                UseShellExecute = true
+            });
+            
+            uninstallProcess?.WaitForExit();
 
             // run installer
-            var process = Process.Start(new ProcessStartInfo
+            var installProcess = Process.Start(new ProcessStartInfo
             {
                 FileName = destination,
                 Arguments = "-install",
                 UseShellExecute = true
             });
 
-            process?.WaitForExit();
+            installProcess?.WaitForExit();
 
             File.Delete(destination);
         }
