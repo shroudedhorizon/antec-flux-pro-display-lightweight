@@ -31,7 +31,7 @@ public class HardwareMonitor : IDisposable
     /// 0 = Cpu + Gpu Package
     /// 1 = Cpu + Gpu Hotspot (fallback to package)
     /// 2 = Gpu Hotspot + Package
-    /// Returns tuple: (cpuTemp, gpuForPayload, gpuHotspot, gpuPackage, resultingDisplayMode, didFallback)
+    /// Returns tuple: (payload1, payload2, fallbackMessage)
     /// </summary>
     // returns payload1, payload2 and an optional fallback message (non-null when a fallback occurred)
     internal (float? payload1, float? payload2, string? fallbackMessage) GetTemperatures(DisplayModeEnum displayMode)
@@ -124,7 +124,7 @@ public class HardwareMonitor : IDisposable
                     payload2 = gpuHotspot;
                     break;
                 }
-                fallbackMessage = "GPU Hot Spot found, using  GPU Package as fallback.";
+                fallbackMessage = "GPU Hot Spot not found, using  GPU Package as fallback.";
                 payload2 = gpuPackage;
                 break;        
             case DisplayModeEnum.GPU_PACKAGE_GPU_HOTSPOT:
