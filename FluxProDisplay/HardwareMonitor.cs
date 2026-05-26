@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Linq;
+using FluxProDisplay.Enum;
 using LibreHardwareMonitor.Hardware;
 using LibreHardwareMonitor.Hardware.Cpu;
 
@@ -33,23 +34,28 @@ public class HardwareMonitor : IDisposable
     /// Returns tuple: (cpuTemp, gpuForPayload, gpuHotspot, gpuPackage, resultingDisplayMode, didFallback)
     /// </summary>
     // returns payload1, payload2 and an optional fallback message (non-null when a fallback occurred)
-    public (float? payload1, float? payload2, string? fallbackMessage) GetTemperatures(int displayMode)
+    internal (float? payload1, float? payload2, string? fallbackMessage) GetTemperatures(DisplayModeEnum displayMode)
     {
         float? cpuTemp = null;
         float? gpuHotspot = null;
         float? gpuPackage = null;
-        float? gpuFallbackTemp = null;
         string? fallbackMessage = null;
+
+        // determine which sensors are required for the requested display mode
+        bool needCpu = displayMode == DisplayModeEnum.CPU_GPU_PACKAGE
+                       || displayMode == DisplayModeEnum.CPU_GPU_HOTSPOT;
+        bool needGpuHotspot = displayMode == DisplayModeEnum.CPU_GPU_HOTSPOT
+                              || displayMode == DisplayModeEnum.GPU_PACKAGE_GPU_HOTSPOT;
+        bool needGpuPackage = displayMode == DisplayModeEnum.CPU_GPU_PACKAGE
+                              || displayMode == DisplayModeEnum.GPU_PACKAGE_GPU_HOTSPOT;
 
         lock (_sync)
         {
             if (_disposed)
                 return (null, null, null);
 
-            // single pass through hardware; iterate each hardware's sensors only once
             foreach (var hardware in _computer.Hardware)
             {
-                // only process CPU and GPU hardware
                 if (hardware.HardwareType != HardwareType.Cpu &&
                     hardware.HardwareType != HardwareType.GpuNvidia &&
                     hardware.HardwareType != HardwareType.GpuAmd &&
@@ -60,8 +66,6 @@ public class HardwareMonitor : IDisposable
                 var sensors = hardware.Sensors.Where(sensor => sensor.SensorType == SensorType.Temperature).ToList();
                 foreach (var sensor in sensors)
                 {
-
-                    // ensure sensor has valid value
                     if (!sensor.Value.HasValue)
                         continue;
                     var val = sensor.Value.Value;
@@ -70,7 +74,6 @@ public class HardwareMonitor : IDisposable
 
                     var name = sensor.Name ?? string.Empty;
 
-                    // CPU temperature sensors
                     if (hardware.HardwareType == HardwareType.Cpu && cpuTemp == null)
                     {
                         if (name.Contains("Tctl/Tdie") || name.Contains("CPU Package"))
@@ -78,27 +81,24 @@ public class HardwareMonitor : IDisposable
                             cpuTemp = val;
                         }
                     }
-
                     else
                     {
                         if (gpuHotspot == null && name.Contains("Hot Spot", StringComparison.OrdinalIgnoreCase))
-                        {
                             gpuHotspot = val;
-                        }
 
                         if (gpuPackage == null && name.Contains("Core", StringComparison.OrdinalIgnoreCase))
-                        {
                             gpuPackage = val;
-                        }
-
-                        if (gpuFallbackTemp == null)
-                            gpuFallbackTemp = val;
                     }
-                }
 
-                if (cpuTemp == null || gpuHotspot == null || gpuPackage == null)
-                    continue;
-                break; // if we've found all relevant temps, no need to continue iterating through hardware
+                    // stop early only when all sensors required by the display mode were found
+                    if ((!needCpu || cpuTemp != null) &&
+                        (!needGpuHotspot || gpuHotspot != null) &&
+                        (!needGpuPackage || gpuPackage != null))
+                    {
+                        break;
+                    }
+
+                }
             }
         }
         // map to opaque payloads according to displayMode
@@ -107,33 +107,44 @@ public class HardwareMonitor : IDisposable
 
         switch (displayMode)
         {
-            case 0: // payload1 = CPU, payload2 = GPU package
+            case DisplayModeEnum.CPU_GPU_PACKAGE:
                 payload1 = cpuTemp;
-                payload2 = gpuPackage ?? gpuFallbackTemp;
+                if (gpuPackage != null)
+                {
+                    payload2 = gpuPackage;
+                    break;
+                }
+                fallbackMessage = "GPU Package not found, using hotspot GPU temperature as fallback.";
+                payload2 = gpuHotspot;
                 break;
-            case 1: // payload1 = CPU, payload2 = GPU hotspot (fallback to package)
+            case DisplayModeEnum.CPU_GPU_HOTSPOT:
                 payload1 = cpuTemp;
                 if (gpuHotspot != null)
                 {
                     payload2 = gpuHotspot;
+                    break;
                 }
-                else
+                fallbackMessage = "GPU Hot Spot found, using  GPU Package as fallback.";
+                payload2 = gpuPackage;
+                break;        
+            case DisplayModeEnum.GPU_PACKAGE_GPU_HOTSPOT:
+                payload1 = gpuPackage;
+                payload2 = gpuHotspot;
+                // local helper to append with newline only when needed
+                static string AppendMsg(string? existing, string addition) =>
+                    string.IsNullOrEmpty(existing) ? addition : existing + Environment.NewLine + addition;
+                if (gpuPackage == null)
                 {
-                    payload2 = gpuPackage ?? gpuFallbackTemp;
-                    fallbackMessage = "GPU Hot Spot not found, switching to GPU Package temperature.";
+                    fallbackMessage = "GPU gpuPackage temperature not found.";
                 }
-                break;
-            case 2:
-                payload1 = gpuPackage ?? gpuFallbackTemp;
-                payload2 = gpuHotspot ?? payload1;
-                if (gpuHotspot == null && (gpuPackage != null || gpuFallbackTemp != null))
+                if (gpuHotspot == null)
                 {
-                    fallbackMessage = "GPU Hot Spot not found, using GPU Package temperature.";
+                    fallbackMessage = AppendMsg(fallbackMessage, "GPU Hot Spot not found.");
                 }
                 break;
             default:
-                payload1 = cpuTemp;
-                payload2 = gpuPackage ?? gpuFallbackTemp;
+                payload1 = payload2 = 0;
+                fallbackMessage = "Unsupported or invalid display mode";
                 break;
         }
 

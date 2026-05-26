@@ -8,6 +8,7 @@ using HidLibrary;
 using Microsoft.Win32.TaskScheduler;
 using Task = System.Threading.Tasks.Task;
 using LibreHardwareMonitor.PawnIo;
+using FluxProDisplay.Enum;
 
 namespace FluxProDisplay;
 
@@ -31,7 +32,7 @@ public partial class FluxProDisplayTray : Form
     private readonly int _pollingInterval;
     private readonly int _vendorId;
     private readonly int _productId;
-    private int _displayMode = 0;
+    private DisplayModeEnum _displayMode = 0;
 
     // other UI components for the tab
     private NotifyIcon _appStatusNotifyIcon = null!;
@@ -113,9 +114,9 @@ public partial class FluxProDisplayTray : Form
         _modeHotspotItem = new ToolStripMenuItem("CPU + GPU Hotspot");
         _modeBothItem = new ToolStripMenuItem("GPU Hotspot + Package");
 
-        _modePackageItem.Click += (s, e) => ChangeDisplayMode(0, true);
-        _modeHotspotItem.Click += (s, e) => ChangeDisplayMode(1, true);
-        _modeBothItem.Click += (s, e) => ChangeDisplayMode(2, true);
+        _modePackageItem.Click += (s, e) => ChangeDisplayMode(DisplayModeEnum.CPU_GPU_PACKAGE, true);
+        _modeHotspotItem.Click += (s, e) => ChangeDisplayMode(DisplayModeEnum.CPU_GPU_HOTSPOT, true);
+        _modeBothItem.Click += (s, e) => ChangeDisplayMode(DisplayModeEnum.GPU_PACKAGE_GPU_HOTSPOT, true);
 
         _displayModeMenuItem.DropDownItems.AddRange(new ToolStripItem[] { _modePackageItem, _modeHotspotItem, _modeBothItem });
 
@@ -184,7 +185,7 @@ public partial class FluxProDisplayTray : Form
         UpdateStartupMenuItemText();
     }
 
-    private void ChangeDisplayMode(int mode, bool persist = true)
+    private void ChangeDisplayMode(DisplayModeEnum mode, bool persist = true)
     {
         _displayMode = mode;
         UpdateDisplayModeMenuChecks();
@@ -208,12 +209,12 @@ public partial class FluxProDisplayTray : Form
 
             var appSettings = root["AppSettings"].AsObject();
             // only write if value changed to avoid unnecessary overwrites at startup
-            int? existing = null;
+            DisplayModeEnum? existing = null;
             try
             {
                 if (appSettings["DisplayMode"] != null)
                 {
-                    existing = appSettings["DisplayMode"].GetValue<int?>();
+                    existing = appSettings["DisplayMode"].GetValue<DisplayModeEnum?>();
                 }
             }
             catch { existing = null; }
@@ -221,7 +222,7 @@ public partial class FluxProDisplayTray : Form
             if (existing == mode)
                 return;
 
-            appSettings["DisplayMode"] = mode;
+            appSettings["DisplayMode"] = (int)mode;
 
             File.WriteAllText(path, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
 
@@ -242,9 +243,9 @@ public partial class FluxProDisplayTray : Form
 
     private void UpdateDisplayModeMenuChecks()
     {
-        _modePackageItem!.Checked = _displayMode == 0;
-        _modeHotspotItem!.Checked = _displayMode == 1;
-        _modeBothItem!.Checked = _displayMode == 2;
+        _modePackageItem!.Checked = _displayMode == DisplayModeEnum.CPU_GPU_PACKAGE;
+        _modeHotspotItem!.Checked = _displayMode == DisplayModeEnum.CPU_GPU_HOTSPOT;
+        _modeBothItem!.Checked = _displayMode == DisplayModeEnum.GPU_PACKAGE_GPU_HOTSPOT;
     }
 
     private void UpdateStartupMenuItemText()
