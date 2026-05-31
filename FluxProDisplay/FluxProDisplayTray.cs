@@ -39,6 +39,8 @@ public partial class FluxProDisplayTray : Form
     private Container _component = null!;
     private ContextMenuStrip _contextMenuStrip = null!;
 
+    private String prevFallback = String.Empty;
+
     private readonly Icon _iconConnected = new Icon("Assets/icon_connected.ico");
     private readonly Icon _iconDisconnected = new Icon("Assets/icon_disconnected.ico");
 
@@ -286,9 +288,10 @@ public partial class FluxProDisplayTray : Form
             // Compute temperatures once per tick and reuse for payload and debug
             var (payload1, payload2, fallbackMessage) = _monitor.GetTemperatures(_displayMode);
 
-            if (!string.IsNullOrEmpty(fallbackMessage))
+            if (!string.IsNullOrEmpty(fallbackMessage) && !prevFallback.Equals(fallbackMessage))
             {
                 _appStatusNotifyIcon.ShowBalloonTip(5000, "FluxProDisplay", fallbackMessage, ToolTipIcon.Info);
+                prevFallback = fallbackMessage;
             }
 
             if (device != null)
