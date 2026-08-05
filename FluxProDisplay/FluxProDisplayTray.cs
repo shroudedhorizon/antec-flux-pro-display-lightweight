@@ -1,7 +1,14 @@
+using System.ComponentModel;
+using System.Diagnostics;
 using FluxProDisplay.DTOs.AppSettings;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.IO;
 using HidLibrary;
 using Microsoft.Win32.TaskScheduler;
 using Task = System.Threading.Tasks.Task;
+using LibreHardwareMonitor.PawnIo;
+using FluxProDisplay.Enum;
 
 namespace FluxProDisplay;
 
@@ -12,62 +19,80 @@ public partial class FluxProDisplayTray : Form
     private ToolStripLabel? _cpuTempDebugLabel;
     private ToolStripLabel? _gpuTempDebugLabel;
     private ToolStripMenuItem? _startupToggleMenuItem;
+    private ToolStripMenuItem? _displayModeMenuItem;
+    private ToolStripMenuItem? _modePackageItem;
+    private ToolStripMenuItem? _modeHotspotItem;
+    private ToolStripMenuItem? _modeBothItem;
     private const string ElevatedTaskName = "FluxProDisplayElevatedTask";
-    
+
     // app settings
+    private readonly string _appName;
+    private readonly string _version;
     private readonly bool _debug;
     private readonly int _pollingInterval;
     private readonly int _vendorId;
     private readonly int _productId;
+    private DisplayModeEnum _displayMode = 0;
 
     // other UI components for the tab
     private NotifyIcon _appStatusNotifyIcon = null!;
+    private Container _component = null!;
     private ContextMenuStrip _contextMenuStrip = null!;
 
-    private PeriodicTimer? _pollTimer;
-    private HidDevice? _device;
-    private byte[]? _payload;
+    private String prevFallback = String.Empty;
 
-    private readonly Icon _iconConnected = new Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "icon_connected.ico"));
-    private readonly Icon _iconDisconnected = new Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "icon_disconnected.ico"));
-    
+    private readonly Icon _iconConnected = new Icon("Assets/icon_connected.ico");
+    private readonly Icon _iconDisconnected = new Icon("Assets/icon_disconnected.ico");
+
     public FluxProDisplayTray(RootConfig configuration)
     {
         // check if iUnity is running to prevent conflicts before doing anything else
         PreflightChecks.CheckForIUnity();
-        
+
         // check if PawnIO driver is installed.
         PreflightChecks.CheckForPawnIoDriver();
-        
+
         InitializeComponent();
-        
+
         _monitor = new HardwareMonitor();
-        
+
         // initialize variables from config file for easier changing
         _debug = configuration.AppInfo.Debug;
         _pollingInterval = configuration.AppSettings.PollingInterval;
         _vendorId = configuration.AppSettings.VendorIdInt;
         _productId = configuration.AppSettings.ProductIdInt;
-        
+
         SetUpTrayIcon();
 
-        _ = WriteToDisplay().ContinueWith(
-            t => Logger.LogError(t.Exception!),
-            TaskContinuationOptions.OnlyOnFaulted);
+        // ensure we dispose monitor on form closing
+        this.FormClosing += FluxProDisplayTray_FormClosing;
+
+        UpdateDisplayModeMenuChecks();
+
+        _ = WriteToDisplay();
     }
-    
+
+    private void FluxProDisplayTray_FormClosing(object? sender, FormClosingEventArgs e)
+    {
+        try { _monitor?.Dispose(); } catch { }
+        try { _appStatusNotifyIcon?.Dispose(); } catch { }
+        try { _component?.Dispose(); } catch { }
+        try { _contextMenuStrip?.Dispose(); } catch { }
+    }
+
     private void SetUpTrayIcon()
     {
-        _appStatusNotifyIcon = new NotifyIcon(components);
+        _component = new Container();
+        _appStatusNotifyIcon = new NotifyIcon(_component);
         _appStatusNotifyIcon.Visible = true;
 
         _contextMenuStrip = new ContextMenuStrip();
 
-        var appNameLabel = new ToolStripLabel(AppMetadata.Name + " " + AppMetadata.Version);
+        var appNameLabel = new ToolStripLabel(_appName + " " + _version);
         appNameLabel.ForeColor = Color.Gray;
         appNameLabel.Enabled = false;
         _contextMenuStrip.Items.Add(appNameLabel);
-        
+
         // debug item that shows current temperature in menu strip
         if (_debug)
         {
@@ -85,12 +110,25 @@ public partial class FluxProDisplayTray : Form
         _startupToggleMenuItem = new ToolStripMenuItem();
         _startupToggleMenuItem.Click += StartupToggleMenuItemClicked;
 
+        // display mode submenu
+        _displayModeMenuItem = new ToolStripMenuItem("Display Mode");
+        _modePackageItem = new ToolStripMenuItem("CPU + GPU Package");
+        _modeHotspotItem = new ToolStripMenuItem("CPU + GPU Hotspot");
+        _modeBothItem = new ToolStripMenuItem("GPU Hotspot + Package");
+
+        _modePackageItem.Click += (s, e) => ChangeDisplayMode(DisplayModeEnum.CPU_GPU_PACKAGE, true);
+        _modeHotspotItem.Click += (s, e) => ChangeDisplayMode(DisplayModeEnum.CPU_GPU_HOTSPOT, true);
+        _modeBothItem.Click += (s, e) => ChangeDisplayMode(DisplayModeEnum.GPU_PACKAGE_GPU_HOTSPOT, true);
+
+        _displayModeMenuItem.DropDownItems.AddRange(new ToolStripItem[] { _modePackageItem, _modeHotspotItem, _modeBothItem });
+
         var quitMenuItem = new ToolStripMenuItem("Quit");
         quitMenuItem.Click += QuitMenuItem_Click!;
 
         // separator to separate
         _contextMenuStrip.Items.Add(new ToolStripSeparator());
         _contextMenuStrip.Items.Add(_startupToggleMenuItem);
+        _contextMenuStrip.Items.Add(_displayModeMenuItem);
         _contextMenuStrip.Items.Add(quitMenuItem);
 
         _appStatusNotifyIcon.ContextMenuStrip = _contextMenuStrip;
@@ -107,12 +145,12 @@ public partial class FluxProDisplayTray : Form
         debugModeLabel.ForeColor = Color.Gray;
         debugModeLabel.Enabled = false;
         _contextMenuStrip.Items.Add(debugModeLabel);
-            
+
         _cpuTempDebugLabel = new ToolStripLabel("CPU Temp: 0°C");
         _cpuTempDebugLabel.ForeColor = Color.Gray;
         _cpuTempDebugLabel.Enabled = false;
         _contextMenuStrip.Items.Add(_cpuTempDebugLabel);
-            
+
         _gpuTempDebugLabel = new ToolStripLabel("GPU Temp: 0°C");
         _gpuTempDebugLabel.ForeColor = Color.Gray;
         _gpuTempDebugLabel.Enabled = false;
@@ -149,6 +187,69 @@ public partial class FluxProDisplayTray : Form
         UpdateStartupMenuItemText();
     }
 
+    private void ChangeDisplayMode(DisplayModeEnum mode, bool persist = true)
+    {
+        _displayMode = mode;
+        UpdateDisplayModeMenuChecks();
+        // persist to appsettings.json
+        if (!persist)
+            return;
+
+        try
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+            if (!File.Exists(path))
+                return;
+
+            var text = File.ReadAllText(path);
+            var root = JsonNode.Parse(text) ?? new JsonObject();
+
+            if (root["AppSettings"] == null || root["AppSettings"].GetType() != typeof(JsonObject))
+            {
+                root["AppSettings"] = new JsonObject();
+            }
+
+            var appSettings = root["AppSettings"].AsObject();
+            // only write if value changed to avoid unnecessary overwrites at startup
+            DisplayModeEnum? existing = null;
+            try
+            {
+                if (appSettings["DisplayMode"] != null)
+                {
+                    existing = appSettings["DisplayMode"].GetValue<DisplayModeEnum?>();
+                }
+            }
+            catch { existing = null; }
+
+            if (existing == mode)
+                return;
+
+            appSettings["DisplayMode"] = (int)mode;
+
+            File.WriteAllText(path, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+
+            // log persistence for debugging
+            try
+            {
+                var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "FluxProDisplay", "persist.log");
+                Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+                File.AppendAllText(logPath, DateTime.UtcNow.ToString("o") + " - Wrote DisplayMode=" + mode + " to appsettings.json\n");
+            }
+            catch { }
+        }
+        catch
+        {
+            // ignore persistence errors
+        }
+    }
+
+    private void UpdateDisplayModeMenuChecks()
+    {
+        _modePackageItem!.Checked = _displayMode == DisplayModeEnum.CPU_GPU_PACKAGE;
+        _modeHotspotItem!.Checked = _displayMode == DisplayModeEnum.CPU_GPU_HOTSPOT;
+        _modeBothItem!.Checked = _displayMode == DisplayModeEnum.GPU_PACKAGE_GPU_HOTSPOT;
+    }
+
     private void UpdateStartupMenuItemText()
     {
         using var ts = new TaskService();
@@ -161,26 +262,14 @@ public partial class FluxProDisplayTray : Form
         Application.Exit();
     }
 
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
-        {
-            _pollTimer?.Dispose();
-            _device?.Dispose();
-            _monitor.Dispose();
-            components?.Dispose();
-        }
-
-        base.Dispose(disposing);
-    }
-
     /// <summary>
     /// Hides the main window on startup.
     /// </summary>
     /// <param name="value"></param>
     protected override void SetVisibleCore(bool value)
     {
-        if (!IsHandleCreated) {
+        if (!IsHandleCreated)
+        {
             value = false;
             CreateHandle();
         }
@@ -190,87 +279,76 @@ public partial class FluxProDisplayTray : Form
     private async Task WriteToDisplay()
     {
         // interval is in ms, set in appsettings.json
-        _pollTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(_pollingInterval));
+        var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(_pollingInterval));
 
         do
         {
-            try
+            var device = HidDevices.Enumerate(_vendorId, _productId).FirstOrDefault();
+
+            // Compute temperatures once per tick and reuse for payload and debug
+            var (payload1, payload2, fallbackMessage) = _monitor.GetTemperatures(_displayMode);
+
+            if (!string.IsNullOrEmpty(fallbackMessage) && !prevFallback.Equals(fallbackMessage))
             {
-                // sample once per tick and reuse for both payload and debug labels
-                var cpuTemp = _monitor.GetCpuTemperature();
-                var gpuTemp = _monitor.GetGpuTemperature();
-
-                // drop a stale handle (unplug, sleep/resume) so we re-enumerate
-                if (_device is { IsConnected: false })
-                {
-                    _device.Dispose();
-                    _device = null;
-                }
-
-                if (_device == null)
-                {
-                    _device = HidDevices.Enumerate(_vendorId, _productId).FirstOrDefault();
-                    _payload = null;
-                }
-
-                if (_device != null)
-                {
-                    var reportLength = _device.Capabilities.OutputReportByteLength;
-                    if (_payload == null || _payload.Length != reportLength)
-                    {
-                        _payload = new byte[reportLength];
-                        // constant report header; digits and checksum are rewritten each tick
-                        _payload[0] = 0;
-                        _payload[1] = 85;
-                        _payload[2] = 170;
-                        _payload[3] = 1;
-                        _payload[4] = 1;
-                        _payload[5] = 6;
-                    }
-
-                    try
-                    {
-                        FillPayload(_payload, cpuTemp, gpuTemp);
-                        _device.Write(_payload);
-                        _connectionStatusLabel!.Text = "Connected";
-                        _appStatusNotifyIcon.Icon = _iconConnected;
-                        _connectionStatusLabel.ForeColor = Color.Green;
-                    }
-                    catch
-                    {
-                        // write failed: drop the handle and fall through to reconnect next tick
-                        _device.Dispose();
-                        _device = null;
-                        _payload = null;
-                    }
-                }
-
-                if (_device == null)
-                {
-                    _connectionStatusLabel!.Text = "Not Connected";
-                    _appStatusNotifyIcon.Icon = _iconDisconnected;
-                    _connectionStatusLabel.ForeColor = Color.Crimson;
-                }
-
-                if (_debug)
-                {
-                    _cpuTempDebugLabel!.Text = "CPU Temp: " + Math.Round(cpuTemp ?? 0, 1) + "°C";
-                    _gpuTempDebugLabel!.Text = "GPU Temp: " + Math.Round(gpuTemp ?? 0, 1) + "°C";
-                }
+                _appStatusNotifyIcon.ShowBalloonTip(5000, "FluxProDisplay", fallbackMessage, ToolTipIcon.Info);
+                prevFallback = fallbackMessage;
             }
-            catch (Exception ex)
+
+            if (device != null)
             {
-                // never let a single bad tick kill the update loop
-                Logger.LogError(ex);
+                _connectionStatusLabel!.Text = "Connected";
+                _appStatusNotifyIcon.Icon = _iconConnected;
+                _connectionStatusLabel.ForeColor = Color.Green;
+
+                // write data to the screen using precomputed payloads
+                device?.Write(GeneratePayload(device, payload1, payload2));
             }
-        } while (await _pollTimer.WaitForNextTickAsync());
+            else
+            {
+                _connectionStatusLabel!.Text = "Not Connected";
+                _appStatusNotifyIcon.Icon = _iconDisconnected;
+                _connectionStatusLabel.ForeColor = Color.Crimson;
+            }
+
+            if (!_debug) continue;
+
+            _cpuTempDebugLabel!.Text = "Payload1: " + Math.Round(payload1 ?? 0, 1) + "°C";
+            _gpuTempDebugLabel!.Text = "Payload2: " + Math.Round(payload2 ?? 0, 1) + "°C";
+
+        } while (await timer.WaitForNextTickAsync());
     }
 
     /// <summary>
-    /// fills the temperature digits and checksum into a pre-allocated payload buffer.
-    /// the constant report header (bytes 0-5) is written once at buffer creation.
+    /// generates the encoded payload to the display
     /// </summary>
-    private static void FillPayload(byte[] payload, float? cpuTemperature, float? gpuTemperature)
+    /// <param name="device"></param>
+    /// <returns></returns>
+    private byte[] GeneratePayload(HidDevice device, float? payload1, float? payload2)
+    {
+        var reportLength = device.Capabilities.OutputReportByteLength;
+        var payload = new byte[reportLength];
+
+        // reporting number, and other information needed to send to the display
+        payload[0] = 0;
+        payload[1] = 85;
+        payload[2] = 170;
+        payload[3] = 1;
+        payload[4] = 1;
+        payload[5] = 6;
+
+        return FormatDisplayPayload(payload, payload1, payload2);
+    }
+
+
+
+    /// <summary>
+    /// formats the payload correctly to send information to the antec flux pro display.
+    /// </summary>
+    /// <param name="payload"></param>
+    /// <param name="cpuTemperature"></param>
+    /// <param name="gpuTemperature"></param>
+    /// <returns></returns>
+    private static byte[] FormatDisplayPayload(byte[] payload, float? cpuTemperature, float? gpuTemperature)
     {
         var roundedCpuTemp = Math.Round(cpuTemperature ?? 0, 1);
         var roundedGpuTemp = Math.Round(gpuTemperature ?? 0, 1);
@@ -293,8 +371,10 @@ public partial class FluxProDisplayTray : Form
         payload[10] = (byte)onesPlaceGpuTemp;
         payload[11] = (byte)tenthsPlaceGpuTemp;
 
-        byte checksum = 0;
-        for (var i = 0; i < 12; i++) checksum += payload[i];
+        // generate checksum per item that is sent to the display
+        var checksum = payload.Aggregate<byte, byte>(0, (current, b) => (byte)(current + b));
         payload[12] = checksum;
+
+        return payload;
     }
 }
