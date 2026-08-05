@@ -1,11 +1,16 @@
 using FluxProDisplay.DTOs.AppSettings;
 using HidLibrary;
+using LibreHardwareMonitor.PawnIo;
 using Microsoft.Win32.TaskScheduler;
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Reflection;
 using Task = System.Threading.Tasks.Task;
 
 namespace FluxProDisplay;
 
-public partial class FluxProDisplayTray : Form
+public class FluxProDisplayService : IDisposable
 {
     private readonly HardwareMonitor _monitor;
     private ToolStripLabel? _connectionStatusLabel;
@@ -13,14 +18,18 @@ public partial class FluxProDisplayTray : Form
     private ToolStripLabel? _gpuTempDebugLabel;
     private ToolStripMenuItem? _startupToggleMenuItem;
     private const string ElevatedTaskName = "FluxProDisplayElevatedTask";
-    
-    // app settings
+
+    // minimum version needed for pawnIO so it runs fine.
+    private const string PawnIoLatestVersion = "2.1.0.0";
+
+    // Lazily cache the PawnIO installer bytes to avoid repeated extraction
+    private static readonly Lazy<byte[]?> CachedPawnIoInstaller = new(ExtractPawnIoInstallerBytes, LazyThreadSafetyMode.ExecutionAndPublication);
+
     private readonly bool _debug;
     private readonly int _pollingInterval;
     private readonly int _vendorId;
     private readonly int _productId;
 
-    // other UI components for the tab
     private NotifyIcon _appStatusNotifyIcon = null!;
     private ContextMenuStrip _contextMenuStrip = null!;
 
@@ -30,36 +39,32 @@ public partial class FluxProDisplayTray : Form
 
     private readonly Icon _iconConnected = new Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "icon_connected.ico"));
     private readonly Icon _iconDisconnected = new Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "icon_disconnected.ico"));
-    
-    public FluxProDisplayTray(RootConfig configuration)
+
+    public FluxProDisplayService(RootConfig configuration)
     {
-        // check if iUnity is running to prevent conflicts before doing anything else
-        PreflightChecks.CheckForIUnity();
-        
-        // check if PawnIO driver is installed.
-        PreflightChecks.CheckForPawnIoDriver();
-        
-        InitializeComponent();
-        
+        CheckForIUnity();
+        CheckForPawnIoDriver();
+
         _monitor = new HardwareMonitor();
-        
-        // initialize variables from config file for easier changing
+
         _debug = configuration.AppInfo.Debug;
         _pollingInterval = configuration.AppSettings.PollingInterval;
         _vendorId = configuration.AppSettings.VendorIdInt;
         _productId = configuration.AppSettings.ProductIdInt;
-        
+
         SetUpTrayIcon();
 
         _ = WriteToDisplay().ContinueWith(
             t => Logger.LogError(t.Exception!),
             TaskContinuationOptions.OnlyOnFaulted);
     }
-    
+
     private void SetUpTrayIcon()
     {
-        _appStatusNotifyIcon = new NotifyIcon(components);
-        _appStatusNotifyIcon.Visible = true;
+        _appStatusNotifyIcon = new NotifyIcon()
+        {
+            Visible = true
+        };
 
         _contextMenuStrip = new ContextMenuStrip();
 
@@ -67,8 +72,7 @@ public partial class FluxProDisplayTray : Form
         appNameLabel.ForeColor = Color.Gray;
         appNameLabel.Enabled = false;
         _contextMenuStrip.Items.Add(appNameLabel);
-        
-        // debug item that shows current temperature in menu strip
+
         if (_debug)
         {
             AddDebugMenuItems();
@@ -81,14 +85,12 @@ public partial class FluxProDisplayTray : Form
         _connectionStatusLabel.Enabled = true;
         _contextMenuStrip.Items.Add(_connectionStatusLabel);
 
-        // menu items
         _startupToggleMenuItem = new ToolStripMenuItem();
         _startupToggleMenuItem.Click += StartupToggleMenuItemClicked;
 
         var quitMenuItem = new ToolStripMenuItem("Quit");
         quitMenuItem.Click += QuitMenuItem_Click!;
 
-        // separator to separate
         _contextMenuStrip.Items.Add(new ToolStripSeparator());
         _contextMenuStrip.Items.Add(_startupToggleMenuItem);
         _contextMenuStrip.Items.Add(quitMenuItem);
@@ -107,12 +109,12 @@ public partial class FluxProDisplayTray : Form
         debugModeLabel.ForeColor = Color.Gray;
         debugModeLabel.Enabled = false;
         _contextMenuStrip.Items.Add(debugModeLabel);
-            
+
         _cpuTempDebugLabel = new ToolStripLabel("CPU Temp: 0°C");
         _cpuTempDebugLabel.ForeColor = Color.Gray;
         _cpuTempDebugLabel.Enabled = false;
         _contextMenuStrip.Items.Add(_cpuTempDebugLabel);
-            
+
         _gpuTempDebugLabel = new ToolStripLabel("GPU Temp: 0°C");
         _gpuTempDebugLabel.ForeColor = Color.Gray;
         _gpuTempDebugLabel.Enabled = false;
@@ -161,46 +163,28 @@ public partial class FluxProDisplayTray : Form
         Application.Exit();
     }
 
-    protected override void Dispose(bool disposing)
+    public void Dispose()
     {
-        if (disposing)
-        {
-            _pollTimer?.Dispose();
-            _device?.Dispose();
-            _monitor.Dispose();
-            components?.Dispose();
-        }
-
-        base.Dispose(disposing);
-    }
-
-    /// <summary>
-    /// Hides the main window on startup.
-    /// </summary>
-    /// <param name="value"></param>
-    protected override void SetVisibleCore(bool value)
-    {
-        if (!IsHandleCreated) {
-            value = false;
-            CreateHandle();
-        }
-        base.SetVisibleCore(value);
+        _pollTimer?.Dispose();
+        _device?.Dispose();
+        _monitor.Dispose();
+        _appStatusNotifyIcon?.Dispose();
+        _contextMenuStrip?.Dispose();
+        _iconConnected?.Dispose();
+        _iconDisconnected?.Dispose();
     }
 
     private async Task WriteToDisplay()
     {
-        // interval is in ms, set in appsettings.json
         _pollTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(_pollingInterval));
 
         do
         {
             try
             {
-                // sample once per tick and reuse for both payload and debug labels
                 var cpuTemp = _monitor.GetCpuTemperature();
                 var gpuTemp = _monitor.GetGpuTemperature();
 
-                // drop a stale handle (unplug, sleep/resume) so we re-enumerate
                 if (_device is { IsConnected: false })
                 {
                     _device.Dispose();
@@ -219,7 +203,6 @@ public partial class FluxProDisplayTray : Form
                     if (_payload == null || _payload.Length != reportLength)
                     {
                         _payload = new byte[reportLength];
-                        // constant report header; digits and checksum are rewritten each tick
                         _payload[0] = 0;
                         _payload[1] = 85;
                         _payload[2] = 170;
@@ -238,7 +221,6 @@ public partial class FluxProDisplayTray : Form
                     }
                     catch
                     {
-                        // write failed: drop the handle and fall through to reconnect next tick
                         _device.Dispose();
                         _device = null;
                         _payload = null;
@@ -260,16 +242,11 @@ public partial class FluxProDisplayTray : Form
             }
             catch (Exception ex)
             {
-                // never let a single bad tick kill the update loop
                 Logger.LogError(ex);
             }
         } while (await _pollTimer.WaitForNextTickAsync());
     }
 
-    /// <summary>
-    /// fills the temperature digits and checksum into a pre-allocated payload buffer.
-    /// the constant report header (bytes 0-5) is written once at buffer creation.
-    /// </summary>
     private static void FillPayload(byte[] payload, float? cpuTemperature, float? gpuTemperature)
     {
         var roundedCpuTemp = Math.Round(cpuTemperature ?? 0, 1);
@@ -296,5 +273,126 @@ public partial class FluxProDisplayTray : Form
         byte checksum = 0;
         for (var i = 0; i < 12; i++) checksum += payload[i];
         payload[12] = checksum;
+    }
+
+    /// <summary>
+    /// check if IUnity is running on the user's system.
+    /// </summary>
+    private static void CheckForIUnity()
+    {
+        var isRunning =
+            Process.GetProcessesByName("iunity").Length > 0 ||
+            Process.GetProcessesByName("AntecHardwareMonitorWindowsService").Length > 0;
+
+        if (!isRunning) return;
+
+        MessageBox.Show("iUnity is running, please end the iUnity program and its related processes from task manager and try again.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        Environment.Exit(1);
+    }
+
+    /// <summary>
+    /// checks for the PawnIO driver. If it's not installed, then install it.
+    /// </summary>
+    private static void CheckForPawnIoDriver()
+    {
+        if (PawnIo.IsInstalled)
+        {
+            if (PawnIo.Version < new Version(PawnIoLatestVersion))
+            {
+                var result = MessageBox.Show("PawnIO driver is outdated, do you want to update it?", nameof(FluxProDisplay), MessageBoxButtons.OKCancel);
+                if (result == DialogResult.OK)
+                {
+                    InstallPawnIoDriver();
+                }
+                else
+                {
+                    Environment.Exit(1);
+                }
+            }
+        }
+        else
+        {
+            var result = MessageBox.Show("PawnIO driver is not installed, do you want to install it?", nameof(FluxProDisplay), MessageBoxButtons.OKCancel);
+            if (result == DialogResult.OK)
+            {
+                InstallPawnIoDriver();
+            }
+            else
+            {
+                Environment.Exit(1);
+            }
+        }
+    }
+
+    /// <summary>
+    /// installs the PawnIO driver.
+    /// </summary>
+    /// <exception cref="Exception"></exception>
+    private static void InstallPawnIoDriver()
+    {
+        var destination = Path.Combine(Path.GetTempPath(), "PawnIO_setup.exe");
+
+        try
+        {
+            var installerBytes = CachedPawnIoInstaller.Value;
+            if (installerBytes == null)
+                throw new Exception("Embedded installer not found");
+
+            // Write cached installer bytes to temp file
+            File.WriteAllBytes(destination, installerBytes);
+
+            // run uninstaller, always uninstall if an install is needed.
+            var uninstallProcess = Process.Start(new ProcessStartInfo
+            {
+                FileName = destination,
+                Arguments = "-uninstall -silent",
+                UseShellExecute = true
+            });
+
+            uninstallProcess?.WaitForExit();
+
+            // run installer
+            var installProcess = Process.Start(new ProcessStartInfo
+            {
+                FileName = destination,
+                Arguments = "-install",
+                UseShellExecute = true
+            });
+
+            installProcess?.WaitForExit();
+
+            File.Delete(destination);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Extracts the embedded PawnIO installer bytes from the assembly.
+    /// This is called lazily on first access and cached thereafter.
+    /// </summary>
+    private static byte[]? ExtractPawnIoInstallerBytes()
+    {
+        try
+        {
+            using (var resourceStream = typeof(FluxProDisplayService).Assembly
+                       .GetManifestResourceStream("FluxProDisplay.Assets.PawnIO_setup.exe"))
+            {
+                if (resourceStream == null)
+                    return null;
+
+                using (var memoryStream = new MemoryStream())
+                {
+                    resourceStream.CopyTo(memoryStream);
+                    return memoryStream.ToArray();
+                }
+            }
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

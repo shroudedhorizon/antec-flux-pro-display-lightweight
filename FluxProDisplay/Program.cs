@@ -5,12 +5,8 @@ namespace FluxProDisplay;
 
 internal static class Program
 {
-    // name of the mutex
     private const string MutexName = "FluxProDisplay_SingleInstance_Mutex";
 
-    /// <summary>
-    ///  The main entry point for the application.
-    /// </summary>
     [STAThread]
     private static void Main()
     {
@@ -27,8 +23,7 @@ internal static class Program
                         MessageBoxIcon.Warning);
                     return;
                 }
-                
-                // set up appsettings configuration
+
                 var configuration = new ConfigurationBuilder()
                     .SetBasePath(AppContext.BaseDirectory)
                     .AddJsonFile("appsettings.json", optional: false, reloadOnChange: false)
@@ -47,12 +42,16 @@ internal static class Program
                 }
 
                 ApplicationConfiguration.Initialize();
-                Application.Run(new FluxProDisplayTray(rootConfig!));
+
+                // Run the tray service (no Form window)
+                using (var service = new FluxProDisplayService(rootConfig!))
+                {
+                    Application.Run();
+                }
             }
         }
         catch (Exception ex)
         {
-            // debug logs for this are located in %APPDATA%\FluxProDisplay\error.log
             Logger.LogError(ex);
             throw;
         }
