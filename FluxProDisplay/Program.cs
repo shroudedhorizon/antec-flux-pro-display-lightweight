@@ -63,6 +63,16 @@ internal static class Logger
 {
     public static void LogError(Exception ex)
     {
+        Write($"[{DateTime.Now:O}] {ex}{Environment.NewLine}{Environment.NewLine}");
+    }
+
+    public static void LogInfo(string message)
+    {
+        Write($"[{DateTime.Now:O}] {message}{Environment.NewLine}");
+    }
+
+    private static void Write(string message)
+    {
         try
         {
             var logPath = Path.Combine(
@@ -71,9 +81,7 @@ internal static class Logger
                 "error.log");
 
             Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
-            File.AppendAllText(
-                logPath,
-                $"[{DateTime.Now:O}] {ex}{Environment.NewLine}{Environment.NewLine}");
+            File.AppendAllText(logPath, message);
         }
         catch
         {

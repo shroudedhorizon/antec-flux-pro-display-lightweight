@@ -1,5 +1,6 @@
 using FluxProDisplay.DTOs.AppSettings;
 using HidLibrary;
+using Microsoft.Win32;
 using Microsoft.Win32.TaskScheduler;
 using Task = System.Threading.Tasks.Task;
 
@@ -27,6 +28,7 @@ public partial class FluxProDisplayTray : Form
     private PeriodicTimer? _pollTimer;
     private HidDevice? _device;
     private byte[]? _payload;
+    private int _reconnectRequested;
 
     private readonly Icon _iconConnected = new Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "icon_connected.ico"));
     private readonly Icon _iconDisconnected = new Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "icon_disconnected.ico"));
@@ -50,6 +52,7 @@ public partial class FluxProDisplayTray : Form
         _productId = configuration.AppSettings.ProductIdInt;
         
         SetUpTrayIcon();
+        SystemEvents.PowerModeChanged += SystemEvents_PowerModeChanged;
 
         _ = WriteToDisplay().ContinueWith(
             t => Logger.LogError(t.Exception!),
@@ -165,6 +168,7 @@ public partial class FluxProDisplayTray : Form
     {
         if (disposing)
         {
+            SystemEvents.PowerModeChanged -= SystemEvents_PowerModeChanged;
             _pollTimer?.Dispose();
             _device?.Dispose();
             _monitor.Dispose();
@@ -172,6 +176,17 @@ public partial class FluxProDisplayTray : Form
         }
 
         base.Dispose(disposing);
+    }
+
+    private void SystemEvents_PowerModeChanged(object? sender, PowerModeChangedEventArgs e)
+    {
+        if (e.Mode != PowerModes.Resume) return;
+
+        // Windows may leave a HID handle valid-looking but unusable after sleep.
+        // The update loop owns the handle, so ask it to discard and rediscover it.
+        // basically, reconnect on every wake regardless, just to be safe.
+        Interlocked.Exchange(ref _reconnectRequested, 1);
+        Logger.LogInfo("System resumed; scheduling display HID reconnection.");
     }
 
     /// <summary>
@@ -196,6 +211,14 @@ public partial class FluxProDisplayTray : Form
         {
             try
             {
+                if (Interlocked.Exchange(ref _reconnectRequested, 0) == 1)
+                {
+                    _device?.Dispose();
+                    _device = null;
+                    _payload = null;
+                    Logger.LogInfo("Discarded the previous display HID handle after resume.");
+                }
+
                 // sample once per tick and reuse for both payload and debug labels
                 var cpuTemp = _monitor.GetCpuTemperature();
                 var gpuTemp = _monitor.GetGpuTemperature();
