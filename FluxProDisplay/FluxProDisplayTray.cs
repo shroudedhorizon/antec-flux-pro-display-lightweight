@@ -29,6 +29,8 @@ public partial class FluxProDisplayTray : Form
     private HidDevice? _device;
     private byte[]? _payload;
     private int _reconnectRequested;
+    private DateTime _nextHeartbeatUtc = DateTime.MinValue;
+    private bool? _lastLoggedConnectionState;
 
     private readonly Icon _iconConnected = new Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "icon_connected.ico"));
     private readonly Icon _iconDisconnected = new Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "icon_disconnected.ico"));
@@ -275,6 +277,9 @@ public partial class FluxProDisplayTray : Form
                     _connectionStatusLabel.ForeColor = Color.Crimson;
                 }
 
+                LogConnectionStateIfChanged(_device != null);
+                LogHeartbeatIfDue();
+
                 if (_debug)
                 {
                     _cpuTempDebugLabel!.Text = "CPU Temp: " + Math.Round(cpuTemp ?? 0, 1) + "°C";
@@ -287,6 +292,25 @@ public partial class FluxProDisplayTray : Form
                 Logger.LogError(ex);
             }
         } while (await _pollTimer.WaitForNextTickAsync());
+    }
+
+    private void LogConnectionStateIfChanged(bool connected)
+    {
+        if (_lastLoggedConnectionState == connected) return;
+
+        _lastLoggedConnectionState = connected;
+        Logger.LogInfo(connected
+            ? "Display HID connected."
+            : "Display HID is not available.");
+    }
+
+    private void LogHeartbeatIfDue()
+    {
+        var now = DateTime.UtcNow;
+        if (now < _nextHeartbeatUtc) return;
+
+        _nextHeartbeatUtc = now.AddMinutes(15);
+        Logger.LogInfo($"Heartbeat: PID {Environment.ProcessId}; display HID {(_device == null ? "not connected" : "connected")}.");
     }
 
     /// <summary>

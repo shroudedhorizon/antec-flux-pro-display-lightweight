@@ -47,7 +47,9 @@ internal static class Program
                 }
 
                 ApplicationConfiguration.Initialize();
+                Logger.LogInfo($"Application starting. Version: {AppMetadata.Version}; PID: {Environment.ProcessId}.");
                 Application.Run(new FluxProDisplayTray(rootConfig!));
+                Logger.LogInfo("Application exited cleanly.");
             }
         }
         catch (Exception ex)
