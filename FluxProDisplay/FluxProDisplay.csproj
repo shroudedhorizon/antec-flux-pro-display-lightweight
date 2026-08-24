@@ -14,11 +14,11 @@
 
     <ItemGroup>
       <PackageReference Include="hidlibrary" Version="3.3.40" />
-      <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.0" />
-      <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.0" />
-      <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.0" />
-      <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.7-pre717" />
-      <PackageReference Include="Microsoft.NET.ILLink.Tasks" Version="10.0.10" />
+      <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.11" />
+      <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.11" />
+      <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.11" />
+      <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.7-pre726" />
+      <PackageReference Include="Microsoft.NET.ILLink.Tasks" Version="10.0.11" />
       <PackageReference Include="TaskScheduler" Version="2.12.2" />
     </ItemGroup>
 
